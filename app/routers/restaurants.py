@@ -1,0 +1,83 @@
+from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select, func
+from sqlalchemy.orm import selectinload
+from app.core.dependencies import get_db
+from app.core.rbac import require_roles
+from app.models import Restaurant, Country
+from app.schemas.restaurant import (
+    RestaurantCreate,
+    RestaurantCreatedResponse,
+    RestaurantListResponse,
+    RestaurantResponse,
+    PaginationMetadata,
+)
+
+router = APIRouter(prefix="/restaurants", tags=["Restaurants"])
+
+
+@router.post(
+    "/",
+    response_model=RestaurantCreatedResponse,
+    dependencies=[Depends(require_roles("ADMIN"))],
+)
+async def create_restaurant(
+    data: RestaurantCreate,
+    db: AsyncSession = Depends(get_db),
+):
+    country = await db.scalar(select(Country).where(Country.name == data.country.value))
+    if not country:
+        raise HTTPException(status_code=400, detail="Invalid country")
+
+    restaurant = Restaurant(name=data.name, country_id=country.id)
+    db.add(restaurant)
+    await db.commit()
+    await db.refresh(restaurant)
+
+    return RestaurantCreatedResponse(message="Restaurant created")
+
+
+@router.get("/", response_model=RestaurantListResponse)
+async def get_restaurants(
+    current_user=Depends(require_roles("ADMIN", "MANAGER", "MEMBER")),
+    db: AsyncSession = Depends(get_db),
+    skip: int = Query(0, ge=0),
+    limit: int = Query(20, ge=1, le=100),
+):
+    query = (
+        select(Restaurant)
+        .options(selectinload(Restaurant.country))
+        .offset(skip)
+        .limit(limit)
+    )
+    count_query = select(func.count(Restaurant.id))
+
+    if current_user.role.name != "ADMIN":
+        query = query.where(Restaurant.country_id == current_user.country_id)
+        count_query = count_query.where(
+            Restaurant.country_id == current_user.country_id
+        )
+    total_result = await db.execute(count_query)
+    total = total_result.scalar()
+
+    result = await db.execute(query)
+    restaurants = result.scalars().all()
+
+    items = [
+        RestaurantResponse(id=r.id, name=r.name, country=r.country.name)
+        for r in restaurants
+    ]
+    num_items = len(items)
+    start = skip + 1 if num_items > 0 else 0
+    end = skip + num_items
+
+    return RestaurantListResponse(
+        items=items,
+        pagination_metadata=PaginationMetadata(
+            total=total,
+            skip=skip,
+            limit=limit,
+            start=start,
+            end=end,
+        ),
+    )

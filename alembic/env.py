@@ -35,6 +35,8 @@ def run_migrations_offline() -> None:
 
     """
     url = settings.DATABASE_URL
+    if url.startswith("postgresql+asyncpg"):
+        url = url.replace("postgresql+asyncpg", "postgresql+psycopg2", 1)
     context.configure(
         url=url,
         target_metadata=target_metadata,
@@ -52,9 +54,14 @@ def run_migrations_online() -> None:
     In this scenario we need to create an Engine
     and associate a connection with the context.
 
+    Alembic runs synchronously, so we must use a sync driver (psycopg2)
+    instead of asyncpg.
     """
+    url = settings.DATABASE_URL
+    if url.startswith("postgresql+asyncpg"):
+        url = url.replace("postgresql+asyncpg", "postgresql+psycopg2", 1)
     connectable = create_engine(
-        settings.DATABASE_URL,
+        url,
         poolclass=pool.NullPool,
     )
 
