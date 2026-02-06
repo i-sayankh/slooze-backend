@@ -4,12 +4,13 @@ from sqlalchemy import select
 from uuid import UUID
 from app.core.dependencies import get_db
 from app.core.rbac import require_roles
-from app.models import Order, OrderItem, Restaurant, MenuItem
+from app.models import Order, OrderItem, Restaurant, MenuItem, PaymentMethod
 from app.schemas.order import (
     OrderCreate,
     OrderCreateResponse,
     AddItemRequest,
     AddItemResponse,
+    CheckoutRequest,
     CheckoutResponse,
     CancelOrderResponse,
 )
@@ -91,6 +92,7 @@ async def add_item(
 @router.post("/{order_id}/checkout", response_model=CheckoutResponse)
 async def checkout_order(
     order_id: UUID,
+    data: CheckoutRequest,
     current_user=Depends(require_roles("ADMIN", "MANAGER")),
     db: AsyncSession = Depends(get_db),
 ):
@@ -102,6 +104,17 @@ async def checkout_order(
 
     if order.status != "CREATED":
         raise HTTPException(status_code=400, detail="Already processed")
+
+    # Validate payment method belongs to user
+    result = await db.execute(
+        select(PaymentMethod)
+        .where(PaymentMethod.id == data.payment_id)
+        .where(PaymentMethod.user_id == current_user.id)
+    )
+    payment = result.scalar_one_or_none()
+
+    if not payment:
+        raise HTTPException(status_code=403, detail="Invalid payment method")
 
     order.status = "PLACED"
 

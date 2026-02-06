@@ -14,6 +14,10 @@ class AddItemRequest(BaseModel):
     quantity: int
 
 
+class CheckoutRequest(BaseModel):
+    payment_id: int
+
+
 # --- Response schemas ---
 
 
