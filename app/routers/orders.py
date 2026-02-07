@@ -1,21 +1,110 @@
-from fastapi import APIRouter, Depends, HTTPException
+from typing import Optional
+
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, func
+from sqlalchemy.orm import selectinload
 from uuid import UUID
 from app.core.dependencies import get_db
 from app.core.rbac import require_roles
 from app.models import Order, OrderItem, Restaurant, MenuItem, PaymentMethod
 from app.schemas.order import (
+    GetOrdersQuery,
     OrderCreate,
     OrderCreateResponse,
+    OrderItemDetail,
+    OrderListResponse,
+    OrderResponse,
     AddItemRequest,
     AddItemResponse,
     CheckoutRequest,
     CheckoutResponse,
     CancelOrderResponse,
 )
+from app.schemas.restaurant import PaginationMetadata
 
 router = APIRouter(prefix="/orders", tags=["Orders"])
+
+
+def get_orders_query(
+    restaurant_id: Optional[int] = Query(None, description="Filter orders by restaurant ID"),
+    skip: int = Query(0, ge=0, description="Number of orders to skip"),
+    limit: int = Query(20, ge=1, le=100, description="Max number of orders to return"),
+) -> GetOrdersQuery:
+    return GetOrdersQuery(restaurant_id=restaurant_id, skip=skip, limit=limit)
+
+
+@router.get("/", response_model=OrderListResponse)
+async def list_orders(
+    query: GetOrdersQuery = Depends(get_orders_query),
+    current_user=Depends(require_roles("ADMIN", "MANAGER", "MEMBER")),
+    db: AsyncSession = Depends(get_db),
+):
+    """List all orders. Optionally filter by restaurant_id. Non-admin users only see orders from their country."""
+    base = (
+        select(Order)
+        .options(
+            selectinload(Order.restaurant),
+            selectinload(Order.items).selectinload(OrderItem.menu_item),
+        )
+    )
+    count_stmt = select(func.count(Order.id))
+
+    # Country-based restriction for non-admin users
+    if current_user.role.name != "ADMIN":
+        base = base.join(Restaurant, Order.restaurant_id == Restaurant.id).where(
+            Restaurant.country_id == current_user.country_id
+        )
+        count_stmt = count_stmt.join(Restaurant, Order.restaurant_id == Restaurant.id).where(
+            Restaurant.country_id == current_user.country_id
+        )
+
+    if query.restaurant_id is not None:
+        base = base.where(Order.restaurant_id == query.restaurant_id)
+        count_stmt = count_stmt.where(Order.restaurant_id == query.restaurant_id)
+
+    total_result = await db.execute(count_stmt)
+    total = total_result.scalar() or 0
+
+    result = await db.execute(
+        base.order_by(Order.id).offset(query.skip).limit(query.limit)
+    )
+    orders = result.scalars().all()
+
+    items = [
+        OrderResponse(
+            id=o.id,
+            user_id=o.user_id,
+            restaurant_id=o.restaurant_id,
+            restaurant_name=o.restaurant.name,
+            status=o.status,
+            total_amount=float(o.total_amount),
+            items=[
+                OrderItemDetail(
+                    menu_item_name=item.menu_item.name,
+                    quantity=item.quantity,
+                    price=float(item.price),
+                )
+                for item in o.items
+            ],
+        )
+        for o in orders
+    ]
+
+    num_items = len(items)
+    start = query.skip + 1 if num_items > 0 else 0
+    end = query.skip + num_items
+
+    return OrderListResponse(
+        items=items,
+        pagination_metadata=PaginationMetadata(
+            total=total,
+            skip=query.skip,
+            limit=query.limit,
+            start=start,
+            end=end,
+        ),
+    )
 
 
 @router.post("/", response_model=OrderCreateResponse)
@@ -102,19 +191,23 @@ async def checkout_order(
     if not order:
         raise HTTPException(status_code=404, detail="Order not found")
 
+    # Ownership check: non-admin users can only checkout their own orders
+    if current_user.role.name != "ADMIN":
+        if order.user_id != current_user.id:
+            raise HTTPException(status_code=403, detail="Access denied: not your order")
+
     if order.status != "CREATED":
         raise HTTPException(status_code=400, detail="Already processed")
 
-    # Validate payment method belongs to user
+    # Validate payment method exists
     result = await db.execute(
         select(PaymentMethod)
         .where(PaymentMethod.id == data.payment_id)
-        .where(PaymentMethod.user_id == current_user.id)
     )
     payment = result.scalar_one_or_none()
 
     if not payment:
-        raise HTTPException(status_code=403, detail="Invalid payment method")
+        raise HTTPException(status_code=404, detail="Payment method not found")
 
     order.status = "PLACED"
 

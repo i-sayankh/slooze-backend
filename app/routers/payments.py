@@ -20,7 +20,7 @@ router = APIRouter(prefix="/payments", tags=["Payments"])
 @router.post("/", response_model=PaymentMethodCreatedResponse)
 async def add_payment_method(
     data: PaymentMethodCreate,
-    current_user=Depends(require_roles("ADMIN", "MANAGER", "MEMBER")),
+    current_user=Depends(require_roles("ADMIN")),
     db: AsyncSession = Depends(get_db),
 ):
     if data.is_default:
@@ -46,21 +46,19 @@ async def add_payment_method(
 
 
 @router.get("/", response_model=PaymentMethodListResponse)
-async def get_my_payments(
+async def get_payments(
     current_user=Depends(require_roles("ADMIN", "MANAGER", "MEMBER")),
     db: AsyncSession = Depends(get_db),
     skip: int = Query(0, ge=0),
     limit: int = Query(20, ge=1, le=100),
 ):
-    base_filter = PaymentMethod.user_id == current_user.id
-
     count_result = await db.execute(
-        select(func.count(PaymentMethod.id)).where(base_filter)
+        select(func.count(PaymentMethod.id))
     )
     total = count_result.scalar()
 
     result = await db.execute(
-        select(PaymentMethod).where(base_filter).offset(skip).limit(limit)
+        select(PaymentMethod).offset(skip).limit(limit)
     )
     payment_methods = result.scalars().all()
 
