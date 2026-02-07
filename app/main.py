@@ -7,8 +7,10 @@ from app.routers import orders
 from app.routers import payments
 
 allow_origins = [
-    "https://slooze-frontend-theta.vercel.app/",
+    "https://slooze-frontend-theta.vercel.app",
+    "http://localhost:3000",
 ]
+
 
 app = FastAPI()
 
