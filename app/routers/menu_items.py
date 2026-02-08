@@ -12,6 +12,10 @@ from app.schemas.menu_item import (
     MenuItemAvailabilityUpdatedResponse,
 )
 from app.schemas.restaurant import PaginationMetadata
+from app.schemas.errors import (
+    AUTHENTICATED_FORBIDDEN_NOT_FOUND_RESPONSES,
+    AUTHENTICATED_NOT_FOUND_RESPONSES,
+)
 
 router = APIRouter(prefix="/menu-items", tags=["Menu Items"])
 
@@ -20,11 +24,22 @@ router = APIRouter(prefix="/menu-items", tags=["Menu Items"])
     "/",
     response_model=MenuItemCreatedResponse,
     dependencies=[Depends(require_roles("ADMIN"))],
+    responses=AUTHENTICATED_NOT_FOUND_RESPONSES,
+    summary="Create a new menu item",
 )
 async def create_menu_item(
     data: MenuItemCreate,
     db: AsyncSession = Depends(get_db),
 ):
+    """
+    Create a menu item for a restaurant. Requires **ADMIN** role.
+
+    **Possible errors:**
+    - **401** – Missing or invalid authentication token.
+    - **404** – The specified restaurant does not exist.
+    - **422** – Request body failed validation.
+    - **500** – Unexpected server error.
+    """
     # Validate restaurant exists
     result = await db.execute(
         select(Restaurant).where(Restaurant.id == data.restaurant_id)
@@ -48,7 +63,12 @@ async def create_menu_item(
     return MenuItemCreatedResponse(message="Menu item created successfully")
 
 
-@router.get("/{restaurant_id}", response_model=MenuItemListResponse)
+@router.get(
+    "/{restaurant_id}",
+    response_model=MenuItemListResponse,
+    responses=AUTHENTICATED_FORBIDDEN_NOT_FOUND_RESPONSES,
+    summary="List menu items for a restaurant",
+)
 async def get_menu_items(
     restaurant_id: int,
     current_user=Depends(require_roles("ADMIN", "MANAGER", "MEMBER")),
@@ -56,6 +76,17 @@ async def get_menu_items(
     skip: int = Query(0, ge=0),
     limit: int = Query(20, ge=1, le=100),
 ):
+    """
+    Retrieve paginated menu items for a given restaurant.
+    Non-admin users can only access restaurants in their own country.
+
+    **Possible errors:**
+    - **401** – Missing or invalid authentication token.
+    - **403** – You do not have access to this restaurant's menu (country restriction).
+    - **404** – The specified restaurant does not exist.
+    - **422** – Query parameters failed validation.
+    - **500** – Unexpected server error.
+    """
     # Fetch restaurant first
     result = await db.execute(select(Restaurant).where(Restaurant.id == restaurant_id))
     restaurant = result.scalar_one_or_none()
@@ -105,11 +136,22 @@ async def get_menu_items(
     "/{menu_item_id}/availability",
     response_model=MenuItemAvailabilityUpdatedResponse,
     dependencies=[Depends(require_roles("ADMIN"))],
+    responses=AUTHENTICATED_NOT_FOUND_RESPONSES,
+    summary="Toggle menu item availability",
 )
 async def toggle_availability(
     menu_item_id: int,
     db: AsyncSession = Depends(get_db),
 ):
+    """
+    Toggle the availability flag of a menu item. Requires **ADMIN** role.
+
+    **Possible errors:**
+    - **401** – Missing or invalid authentication token.
+    - **404** – The specified menu item does not exist.
+    - **422** – Path parameter failed validation.
+    - **500** – Unexpected server error.
+    """
     result = await db.execute(select(MenuItem).where(MenuItem.id == menu_item_id))
     item = result.scalar_one_or_none()
 

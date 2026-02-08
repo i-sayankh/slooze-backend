@@ -22,6 +22,11 @@ from app.schemas.order import (
     CancelOrderResponse,
 )
 from app.schemas.restaurant import PaginationMetadata
+from app.schemas.errors import (
+    AUTHENTICATED_FORBIDDEN_RESPONSES,
+    AUTHENTICATED_FORBIDDEN_NOT_FOUND_RESPONSES,
+    AUTHENTICATED_ALL_RESPONSES,
+)
 
 router = APIRouter(prefix="/orders", tags=["Orders"])
 
@@ -34,13 +39,27 @@ def get_orders_query(
     return GetOrdersQuery(restaurant_id=restaurant_id, skip=skip, limit=limit)
 
 
-@router.get("/", response_model=OrderListResponse)
+@router.get(
+    "/",
+    response_model=OrderListResponse,
+    responses=AUTHENTICATED_FORBIDDEN_RESPONSES,
+    summary="List all orders",
+)
 async def list_orders(
     query: GetOrdersQuery = Depends(get_orders_query),
     current_user=Depends(require_roles("ADMIN", "MANAGER", "MEMBER")),
     db: AsyncSession = Depends(get_db),
 ):
-    """List all orders. Optionally filter by restaurant_id. Non-admin users only see orders from their country."""
+    """
+    List all orders with optional filtering by restaurant.
+    Non-admin users only see orders from restaurants in their country.
+
+    **Possible errors:**
+    - **401** – Missing or invalid authentication token.
+    - **403** – Insufficient permissions for this action.
+    - **422** – Query parameters failed validation.
+    - **500** – Unexpected server error.
+    """
     base = (
         select(Order)
         .options(
@@ -107,12 +126,28 @@ async def list_orders(
     )
 
 
-@router.post("/", response_model=OrderCreateResponse)
+@router.post(
+    "/",
+    response_model=OrderCreateResponse,
+    responses=AUTHENTICATED_FORBIDDEN_NOT_FOUND_RESPONSES,
+    summary="Create a new order",
+)
 async def create_order(
     data: OrderCreate,
     current_user=Depends(require_roles("ADMIN", "MANAGER", "MEMBER")),
     db: AsyncSession = Depends(get_db),
 ):
+    """
+    Create a new order for a restaurant.
+    Non-admin users can only create orders at restaurants in their country.
+
+    **Possible errors:**
+    - **401** – Missing or invalid authentication token.
+    - **403** – You do not have access to this restaurant (country restriction).
+    - **404** – The specified restaurant does not exist.
+    - **422** – Request body failed validation.
+    - **500** – Unexpected server error.
+    """
     result = await db.execute(
         select(Restaurant).where(Restaurant.id == data.restaurant_id)
     )
@@ -135,13 +170,30 @@ async def create_order(
     return OrderCreateResponse(order_id=order.id, status=order.status)
 
 
-@router.post("/{order_id}/items", response_model=AddItemResponse)
+@router.post(
+    "/{order_id}/items",
+    response_model=AddItemResponse,
+    responses=AUTHENTICATED_ALL_RESPONSES,
+    summary="Add an item to an order",
+)
 async def add_item(
     order_id: UUID,
     data: AddItemRequest,
     current_user=Depends(require_roles("ADMIN", "MANAGER", "MEMBER")),
     db: AsyncSession = Depends(get_db),
 ):
+    """
+    Add a menu item to an existing order.
+    Only the order owner (or ADMIN) may add items. The order must still be in CREATED status.
+
+    **Possible errors:**
+    - **400** – Order has already been finalized.
+    - **401** – Missing or invalid authentication token.
+    - **403** – You are not the owner of this order.
+    - **404** – Order or menu item not found / unavailable.
+    - **422** – Request body failed validation.
+    - **500** – Unexpected server error.
+    """
     result = await db.execute(select(Order).where(Order.id == order_id))
     order = result.scalar_one_or_none()
 
@@ -178,13 +230,30 @@ async def add_item(
     return AddItemResponse(message="Item added successfully")
 
 
-@router.post("/{order_id}/checkout", response_model=CheckoutResponse)
+@router.post(
+    "/{order_id}/checkout",
+    response_model=CheckoutResponse,
+    responses=AUTHENTICATED_ALL_RESPONSES,
+    summary="Checkout an order",
+)
 async def checkout_order(
     order_id: UUID,
     data: CheckoutRequest,
     current_user=Depends(require_roles("ADMIN", "MANAGER")),
     db: AsyncSession = Depends(get_db),
 ):
+    """
+    Finalize an order and mark it as PLACED.
+    Requires **ADMIN** or **MANAGER** role. Non-admin users can only checkout their own orders.
+
+    **Possible errors:**
+    - **400** – Order has already been processed.
+    - **401** – Missing or invalid authentication token.
+    - **403** – You are not the owner of this order.
+    - **404** – Order or payment method not found.
+    - **422** – Request body failed validation.
+    - **500** – Unexpected server error.
+    """
     result = await db.execute(select(Order).where(Order.id == order_id))
     order = result.scalar_one_or_none()
 
@@ -220,12 +289,29 @@ async def checkout_order(
     )
 
 
-@router.patch("/{order_id}/cancel", response_model=CancelOrderResponse)
+@router.patch(
+    "/{order_id}/cancel",
+    response_model=CancelOrderResponse,
+    responses=AUTHENTICATED_ALL_RESPONSES,
+    summary="Cancel an order",
+)
 async def cancel_order(
     order_id: UUID,
     current_user=Depends(require_roles("ADMIN", "MANAGER")),
     db: AsyncSession = Depends(get_db),
 ):
+    """
+    Cancel a placed order. Requires **ADMIN** or **MANAGER** role.
+    Only orders in PLACED status can be cancelled.
+
+    **Possible errors:**
+    - **400** – Only placed orders can be cancelled.
+    - **401** – Missing or invalid authentication token.
+    - **403** – Insufficient permissions for this action.
+    - **404** – The specified order does not exist.
+    - **422** – Path parameter failed validation.
+    - **500** – Unexpected server error.
+    """
     result = await db.execute(select(Order).where(Order.id == order_id))
     order = result.scalar_one_or_none()
 

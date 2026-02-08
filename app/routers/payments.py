@@ -13,16 +13,35 @@ from app.schemas.payment import (
     PaymentMethodUpdatedResponse,
 )
 from app.schemas.restaurant import PaginationMetadata
+from app.schemas.errors import (
+    AUTHENTICATED_FORBIDDEN_RESPONSES,
+    AUTHENTICATED_FORBIDDEN_NOT_FOUND_RESPONSES,
+)
 
 router = APIRouter(prefix="/payments", tags=["Payments"])
 
 
-@router.post("/", response_model=PaymentMethodCreatedResponse)
+@router.post(
+    "/",
+    response_model=PaymentMethodCreatedResponse,
+    responses=AUTHENTICATED_FORBIDDEN_RESPONSES,
+    summary="Add a payment method",
+)
 async def add_payment_method(
     data: PaymentMethodCreate,
     current_user=Depends(require_roles("ADMIN")),
     db: AsyncSession = Depends(get_db),
 ):
+    """
+    Add a new payment method. Requires **ADMIN** role.
+    If ``is_default`` is true, all other payment methods for the user are un-defaulted.
+
+    **Possible errors:**
+    - **401** – Missing or invalid authentication token.
+    - **403** – Insufficient permissions (ADMIN role required).
+    - **422** – Request body failed validation.
+    - **500** – Unexpected server error.
+    """
     if data.is_default:
         await db.execute(
             update(PaymentMethod)
@@ -45,13 +64,27 @@ async def add_payment_method(
     return PaymentMethodCreatedResponse(message="Payment method added", id=payment.id)
 
 
-@router.get("/", response_model=PaymentMethodListResponse)
+@router.get(
+    "/",
+    response_model=PaymentMethodListResponse,
+    responses=AUTHENTICATED_FORBIDDEN_RESPONSES,
+    summary="List payment methods",
+)
 async def get_payments(
     current_user=Depends(require_roles("ADMIN", "MANAGER", "MEMBER")),
     db: AsyncSession = Depends(get_db),
     skip: int = Query(0, ge=0),
     limit: int = Query(20, ge=1, le=100),
 ):
+    """
+    Retrieve a paginated list of all payment methods.
+
+    **Possible errors:**
+    - **401** – Missing or invalid authentication token.
+    - **403** – Insufficient permissions for this action.
+    - **422** – Query parameters failed validation.
+    - **500** – Unexpected server error.
+    """
     count_result = await db.execute(
         select(func.count(PaymentMethod.id))
     )
@@ -79,13 +112,28 @@ async def get_payments(
     )
 
 
-@router.put("/{payment_id}", response_model=PaymentMethodUpdatedResponse)
+@router.put(
+    "/{payment_id}",
+    response_model=PaymentMethodUpdatedResponse,
+    responses=AUTHENTICATED_FORBIDDEN_NOT_FOUND_RESPONSES,
+    summary="Update a payment method",
+)
 async def update_payment_method(
     payment_id: int,
     data: PaymentMethodUpdate,
     current_user=Depends(require_roles("ADMIN")),
     db: AsyncSession = Depends(get_db),
 ):
+    """
+    Update an existing payment method. Requires **ADMIN** role.
+
+    **Possible errors:**
+    - **401** – Missing or invalid authentication token.
+    - **403** – Insufficient permissions (ADMIN role required).
+    - **404** – The specified payment method does not exist.
+    - **422** – Request body failed validation.
+    - **500** – Unexpected server error.
+    """
     result = await db.execute(
         select(PaymentMethod).where(PaymentMethod.id == payment_id)
     )

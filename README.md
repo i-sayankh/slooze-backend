@@ -274,10 +274,9 @@ Non-admin users can only see restaurants, menu items, and orders belonging to th
 
 The backend is configured to allow requests from the following origins:
 
+- `https://slooze-frontend-theta.vercel.app`
 - `http://localhost:3000`
-- `http://localhost:5173`
 - `http://127.0.0.1:3000`
-- `http://127.0.0.1:5173`
 
 ---
 

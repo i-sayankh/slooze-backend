@@ -12,6 +12,15 @@ from app.schemas.restaurant import (
     RestaurantResponse,
     PaginationMetadata,
 )
+from app.schemas.errors import (
+    build_responses,
+    UNAUTHORIZED_401,
+    FORBIDDEN_403,
+    BAD_REQUEST_400,
+    VALIDATION_422,
+    INTERNAL_SERVER_ERROR_500,
+    AUTHENTICATED_FORBIDDEN_RESPONSES,
+)
 
 router = APIRouter(prefix="/restaurants", tags=["Restaurants"])
 
@@ -20,11 +29,26 @@ router = APIRouter(prefix="/restaurants", tags=["Restaurants"])
     "/",
     response_model=RestaurantCreatedResponse,
     dependencies=[Depends(require_roles("ADMIN"))],
+    responses=build_responses(
+        UNAUTHORIZED_401, FORBIDDEN_403, BAD_REQUEST_400,
+        VALIDATION_422, INTERNAL_SERVER_ERROR_500,
+    ),
+    summary="Create a new restaurant",
 )
 async def create_restaurant(
     data: RestaurantCreate,
     db: AsyncSession = Depends(get_db),
 ):
+    """
+    Create a new restaurant. Requires **ADMIN** role.
+
+    **Possible errors:**
+    - **400** – Invalid country provided.
+    - **401** – Missing or invalid authentication token.
+    - **403** – Insufficient permissions (ADMIN role required).
+    - **422** – Request body failed validation.
+    - **500** – Unexpected server error.
+    """
     country = await db.scalar(select(Country).where(Country.name == data.country.value))
     if not country:
         raise HTTPException(status_code=400, detail="Invalid country")
@@ -37,13 +61,28 @@ async def create_restaurant(
     return RestaurantCreatedResponse(message="Restaurant created")
 
 
-@router.get("/", response_model=RestaurantListResponse)
+@router.get(
+    "/",
+    response_model=RestaurantListResponse,
+    responses=AUTHENTICATED_FORBIDDEN_RESPONSES,
+    summary="List restaurants",
+)
 async def get_restaurants(
     current_user=Depends(require_roles("ADMIN", "MANAGER", "MEMBER")),
     db: AsyncSession = Depends(get_db),
     skip: int = Query(0, ge=0),
     limit: int = Query(20, ge=1, le=100),
 ):
+    """
+    Retrieve a paginated list of restaurants.
+    Non-admin users only see restaurants in their own country.
+
+    **Possible errors:**
+    - **401** – Missing or invalid authentication token.
+    - **403** – Insufficient permissions for this action.
+    - **422** – Query parameters failed validation.
+    - **500** – Unexpected server error.
+    """
     query = (
         select(Restaurant)
         .options(selectinload(Restaurant.country))
