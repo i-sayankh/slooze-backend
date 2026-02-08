@@ -95,7 +95,7 @@ The application uses the following PostgreSQL schema. Tables are linked by forei
 ### 1. Clone the Repository
 
 ```bash
-git clone https://github.com/<your-username>/slooze-backend.git
+git clone https://github.com/i-sayankh/slooze-backend.git
 cd slooze-backend
 ```
 
