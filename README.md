@@ -20,45 +20,65 @@ A RESTful backend API for a food ordering platform built with **FastAPI**, **SQL
 
 ```
 slooze-backend/
-??? alembic/                # Database migrations
-?   ??? versions/           # Migration scripts
-?   ??? env.py              # Alembic environment config
-??? app/
-?   ??? core/
-?   ?   ??? config.py       # App settings (loaded from .env)
-?   ?   ??? dependencies.py # Shared FastAPI dependencies (DB session, current user)
-?   ?   ??? rbac.py         # Role-based access control helpers
-?   ?   ??? security.py     # Password hashing & JWT token utilities
-?   ??? db/
-?   ?   ??? base.py         # SQLAlchemy declarative base
-?   ?   ??? session.py      # Async engine & session factory
-?   ??? models/             # SQLAlchemy ORM models
-?   ?   ??? country.py
-?   ?   ??? menu_item.py
-?   ?   ??? order.py
-?   ?   ??? order_item.py
-?   ?   ??? payment_method.py
-?   ?   ??? restaurant.py
-?   ?   ??? role.py
-?   ?   ??? user.py
-?   ??? routers/            # API route handlers
-?   ?   ??? auth.py         # Register & login
-?   ?   ??? menu_items.py   # CRUD for menu items
-?   ?   ??? orders.py       # Order lifecycle (create, add items, checkout, cancel)
-?   ?   ??? payments.py     # Payment method management
-?   ?   ??? restaurants.py  # Restaurant management
-?   ??? schemas/            # Pydantic request/response models
-?   ?   ??? auth.py
-?   ?   ??? menu_item.py
-?   ?   ??? order.py
-?   ?   ??? payment.py
-?   ?   ??? restaurant.py
-?   ??? main.py             # FastAPI app entry point
-?   ??? seed.py             # Seed script for roles & countries
-??? alembic.ini             # Alembic configuration
-??? requirements.txt        # Python dependencies
-??? .gitignore
+|-- alembic/                # Database migrations
+|   |-- versions/           # Migration scripts
+|   |-- env.py              # Alembic environment config
+|-- app/
+|   |-- core/
+|   |   |-- config.py       # App settings (loaded from .env)
+|   |   |-- dependencies.py # Shared FastAPI dependencies (DB session, current user)
+|   |   |-- rbac.py         # Role-based access control helpers
+|   |   |-- security.py     # Password hashing & JWT token utilities
+|   |-- db/
+|   |   |-- base.py         # SQLAlchemy declarative base
+|   |   |-- session.py      # Async engine & session factory
+|   |-- models/             # SQLAlchemy ORM models
+|   |   |-- country.py
+|   |   |-- menu_item.py
+|   |   |-- order.py
+|   |   |-- order_item.py
+|   |   |-- payment_method.py
+|   |   |-- restaurant.py
+|   |   |-- role.py
+|   |   |-- user.py
+|   |-- routers/            # API route handlers
+|   |   |-- auth.py         # Register & login
+|   |   |-- menu_items.py   # CRUD for menu items
+|   |   |-- orders.py       # Order lifecycle (create, add items, checkout, cancel)
+|   |   |-- payments.py     # Payment method management
+|   |   |-- restaurants.py  # Restaurant management
+|   |-- schemas/            # Pydantic request/response models
+|   |   |-- auth.py
+|   |   |-- menu_item.py
+|   |   |-- order.py
+|   |   |-- payment.py
+|   |   |-- restaurant.py
+|   |-- main.py             # FastAPI app entry point
+|   |-- seed.py             # Seed script for roles & countries
+|-- alembic.ini             # Alembic configuration
+|-- requirements.txt        # Python dependencies
+|-- .gitignore
 ```
+
+---
+
+## Database Schema
+
+The application uses the following PostgreSQL schema. Tables are linked by foreign keys as shown.
+
+![Database schema](docs/database-schema.png)
+
+| Table             | Purpose |
+|-------------------|--------|
+| `alembic_version` | Tracks applied migrations |
+| `roles`           | User roles (ADMIN, MANAGER, MEMBER) |
+| `countries`       | Countries (e.g. India, America) |
+| `users`           | User accounts (role_id, country_id) |
+| `restaurants`     | Restaurants (country_id) |
+| `menu_items`      | Menu items per restaurant |
+| `orders`          | Orders (user_id, restaurant_id, status, total_amount) |
+| `order_items`     | Line items (order_id, menu_item_id, quantity, price) |
+| `payment_methods` | User payment methods (user_id, type, provider, last_four, is_default) |
 
 ---
 
